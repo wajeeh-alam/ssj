@@ -80,3 +80,46 @@ def test_ppo_updates_weights():
 
     assert weights_changed
     assert torch.isfinite(torch.tensor(loss))
+
+def test_ppo_runs_all_epochs():
+    model = ActorCritic(state_dim=5, action_dim=4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
+    buffer = RolloutBuffer()
+
+    # Expects:
+    # ceil(100 / 64) = 2 minibatches per epoch
+    # 4 epochs * 2 minibatches = 8 optimizer steps
+    
+    for _ in range(100):
+        state = torch.rand(5)
+
+        with torch.no_grad():
+            action, log_prob, value = model.act(state)
+
+        buffer.add(
+            state=state,
+            action=action,
+            reward=torch.rand(1).item(),
+            log_prob=log_prob,
+            value=value,
+            done=False
+        )
+
+    advantages = torch.randn(100).tolist()
+    returns = torch.randn(100).tolist()
+
+    ppo_update(
+        model,
+        optimizer,
+        buffer,
+        advantages,
+        returns,
+        epochs=4,
+        minibatch_size=64
+    )
+
+    # See how many times Adam updated the parameters
+    first_param = next(model.parameters())
+    step_count = optimizer.state[first_param]["step"].item()
+
+    assert step_count == 8
